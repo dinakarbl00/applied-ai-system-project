@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Optional
 import uuid
+import json
+import os
 
 
 # ══════════════════════════════════════════════════════════════
@@ -211,6 +213,7 @@ class Owner:
     Top-level data store.
     Holds a collection of Pet objects and provides get_all_tasks(),
     which gives the Scheduler a flat view of every task across every pet.
+    Also handles saving and loading data so it survives app restarts.
     """
 
     def __init__(self, name: str, email: str = ""):
@@ -255,18 +258,274 @@ class Owner:
         """How many pets does this owner have?"""
         return len(self.pets)
 
+    def save_to_json(self, filepath: str = "data.json") -> None:
+        """
+        Serialise the entire owner → pets → tasks tree to a JSON file.
+        Creates parent directories automatically if needed.
+        """
+        data = {
+            "owner": {
+                "name":  self.name,
+                "email": self.email,
+                "pets":  [p.to_dict() for p in self.pets],
+            }
+        }
+        parent = os.path.dirname(filepath)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(filepath, "w") as fh:
+            json.dump(data, fh, indent=2)
+
+    @classmethod
+    def load_from_json(cls, filepath: str = "data.json") -> Optional["Owner"]:
+        """
+        Load owner data from a JSON file.
+        Returns None instead of crashing if the file does not exist yet.
+        """
+        if not os.path.exists(filepath):
+            return None
+        with open(filepath, "r") as fh:
+            data = json.load(fh)
+        od    = data["owner"]
+        owner = cls(name=od["name"], email=od.get("email", ""))
+        owner.pets = [Pet.from_dict(p) for p in od.get("pets", [])]
+        return owner
+
+    def to_dict(self) -> dict:
+        """Convert to a plain dict."""
+        return {
+            "name":  self.name,
+            "email": self.email,
+            "pets":  [p.to_dict() for p in self.pets],
+        }
+
 
 # ══════════════════════════════════════════════════════════════
 # SCHEDULER
 # ══════════════════════════════════════════════════════════════
 
+# Numeric rank used as a sort key — higher number = more urgent
+_PRIORITY_RANK: dict[str, int] = {"high": 3, "medium": 2, "low": 1}
+
+
 class Scheduler:
     """
     The algorithmic brain of PawPal+.
-    Receives an Owner at construction time and will provide
-    sorting, filtering, conflict detection, and smart scheduling.
+    Receives an Owner at construction time.
+    Does not store data — only reads from Owner and returns results.
     """
 
     def __init__(self, owner: Owner):
         """Attach this Scheduler to a specific Owner."""
         self.owner = owner
+
+    # ── SORTING ───────────────────────────────────────────────
+
+    def sort_by_time(
+        self, tasks: list[tuple[str, Task]] | None = None
+    ) -> list[tuple[str, Task]]:
+        """
+        Sort tasks chronologically by due_time.
+        Zero-padded HH:MM strings sort correctly with plain string
+        comparison, so no datetime parsing is needed.
+        """
+        task_list = tasks if tasks is not None else self.owner.get_all_tasks()
+        return sorted(task_list, key=lambda pair: pair[1].due_time)
+
+    def sort_by_priority(
+        self, tasks: list[tuple[str, Task]] | None = None
+    ) -> list[tuple[str, Task]]:
+        """
+        Sort tasks high → medium → low.
+        Within the same priority tier, sub-sort by time.
+        Composite key: (-priority_rank, due_time).
+        Negating the rank makes high sort first with ascending order.
+        """
+        task_list = tasks if tasks is not None else self.owner.get_all_tasks()
+        return sorted(
+            task_list,
+            key=lambda pair: (
+                -_PRIORITY_RANK.get(pair[1].priority, 0),
+                pair[1].due_time,
+            ),
+        )
+
+    def sort_by_priority_then_time(
+        self, tasks: list[tuple[str, Task]] | None = None
+    ) -> list[tuple[str, Task]]:
+        """Sort by priority first, then time as a tiebreaker within each tier."""
+        return self.sort_by_priority(tasks)
+
+    # ── FILTERING ─────────────────────────────────────────────
+
+    def filter_by_pet(self, pet_name: str) -> list[tuple[str, Task]]:
+        """Return only tasks that belong to the named pet."""
+        return [
+            (name, task)
+            for name, task in self.owner.get_all_tasks()
+            if name.lower() == pet_name.lower()
+        ]
+
+    def filter_by_status(self, completed: bool) -> list[tuple[str, Task]]:
+        """Return only completed tasks (True) or only pending tasks (False)."""
+        return [
+            (name, task)
+            for name, task in self.owner.get_all_tasks()
+            if task.completed == completed
+        ]
+
+    def filter_by_date(self, target_date: str) -> list[tuple[str, Task]]:
+        """Return tasks whose due_date matches target_date (YYYY-MM-DD)."""
+        return [
+            (name, task)
+            for name, task in self.owner.get_all_tasks()
+            if task.due_date == target_date
+        ]
+
+    def filter_by_priority(self, priority: str) -> list[tuple[str, Task]]:
+        """Return tasks of a specific priority level."""
+        return [
+            (name, task)
+            for name, task in self.owner.get_all_tasks()
+            if task.priority.lower() == priority.lower()
+        ]
+
+    def get_todays_tasks(self) -> list[tuple[str, Task]]:
+        """Return today's tasks sorted by priority then time."""
+        todays = self.filter_by_date(str(date.today()))
+        return self.sort_by_priority_then_time(todays)
+
+    # ── CONFLICT DETECTION ────────────────────────────────────
+
+    def detect_conflicts(self) -> list[str]:
+        """
+        Scan every task and flag any two tasks sharing the same
+        (due_date, due_time) slot.
+
+        Uses a single-pass dictionary — each slot key maps to a list
+        of (pet_name, description) entries. Any key with 2+ entries
+        is a conflict. Returns warning strings, never raises.
+        """
+        groups: dict[tuple, list] = {}
+        for pet_name, task in self.owner.get_all_tasks():
+            slot = (task.due_date, task.due_time)
+            groups.setdefault(slot, []).append((pet_name, task.description))
+
+        warnings = []
+        for (t_date, t_time), entries in groups.items():
+            if len(entries) > 1:
+                detail = ", ".join(f"{p}: '{d}'" for p, d in entries)
+                warnings.append(
+                    f"⚠️  CONFLICT  {t_date} @ {t_time}  →  {detail}"
+                )
+        return warnings
+
+    # ── RECURRING TASKS ───────────────────────────────────────
+
+    def mark_task_complete_and_reschedule(
+        self, pet_name: str, task_description: str
+    ) -> str:
+        """
+        Mark a task done. If it recurs (daily / weekly), automatically
+        add the next occurrence to that pet's task list.
+        Returns a status string — never raises an exception.
+        """
+        pet = self.owner.get_pet(pet_name)
+        if pet is None:
+            return f"❌ Pet '{pet_name}' not found."
+
+        for task in pet.tasks:
+            if (
+                task.description.lower() == task_description.lower()
+                and not task.completed
+            ):
+                task.mark_complete()
+                next_task = task.reschedule()
+                if next_task:
+                    pet.add_task(next_task)
+                    return (
+                        f"✅ '{task.description}' done!  "
+                        f"Next scheduled: {next_task.due_date} @ {next_task.due_time}"
+                    )
+                return f"✅ '{task.description}' complete (one-time task)."
+
+        return f"❌ '{task_description}' not found for {pet_name}, or already complete."
+
+    # ── NEXT AVAILABLE SLOT ───────────────────────────────────
+
+    def find_next_available_slot(
+        self, target_date: str, start_time: str = "07:00"
+    ) -> str:
+        """
+        Find the first free 30-minute slot on target_date at or after start_time.
+
+        Builds a set of all booked HH:MM times on that date (O(1) lookup),
+        then walks candidate slots in 30-minute increments until a free one
+        is found. Caps at 22:00 as an end-of-day fallback.
+        """
+        booked: set[str] = {
+            task.due_time
+            for _, task in self.filter_by_date(target_date)
+        }
+        hour, minute = map(int, start_time.split(":"))
+        while hour < 22:
+            candidate = f"{hour:02d}:{minute:02d}"
+            if candidate not in booked:
+                return candidate
+            minute += 30
+            if minute >= 60:
+                minute = 0
+                hour  += 1
+        return "22:00"
+
+    # ── PRIORITY-WEIGHTED SCHEDULE ────────────────────────────
+
+    def build_priority_schedule(
+        self, target_date: str, max_tasks: int = 10
+    ) -> list[tuple[str, Task]]:
+        """
+        Return the top max_tasks pending tasks for target_date ranked by
+        a weighted priority score.
+
+        Scoring:
+          high   → 30 pts
+          medium → 20 pts
+          low    → 10 pts
+          +5 bonus if task_type is medication (never skip meds)
+
+        Tasks with equal scores are sub-sorted by time.
+        """
+        candidates = [
+            (pet_name, task)
+            for pet_name, task in self.filter_by_date(target_date)
+            if not task.completed
+        ]
+
+        def score(pair: tuple) -> int:
+            _, task = pair
+            pts = _PRIORITY_RANK.get(task.priority, 0) * 10
+            if task.task_type == "medication":
+                pts += 5
+            return pts
+
+        ranked = sorted(candidates, key=lambda p: (-score(p), p[1].due_time))
+        return ranked[:max_tasks]
+
+    # ── SUMMARY ───────────────────────────────────────────────
+
+    def get_summary(self) -> dict:
+        """Return a metrics dict for the dashboard."""
+        all_tasks = self.owner.get_all_tasks()
+        total     = len(all_tasks)
+        done      = sum(1 for _, t in all_tasks if t.completed)
+        hi_pend   = sum(
+            1 for _, t in all_tasks
+            if t.priority == "high" and not t.completed
+        )
+        return {
+            "total":                 total,
+            "completed":             done,
+            "pending":               total - done,
+            "high_priority_pending": hi_pend,
+            "pets":                  self.owner.pet_count(),
+        }

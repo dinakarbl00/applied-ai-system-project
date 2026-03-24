@@ -35,12 +35,20 @@ complexity without meaningful benefit at this project's scale.
 **a. Constraints and priorities**
 
 - What constraints does your scheduler consider (for example: time, priority, preferences)?
+- A: The scheduler considers time, date, priority level, and task type.
 - How did you decide which constraints mattered most?
+- A: Priority was chosen as the primary sort key over time because a high-priority
+vet appointment at 14:00 is more important to surface than a low-priority
+walk at 07:00. Time acts as a tiebreaker within each priority band.
 
 **b. Tradeoffs**
 
 - Describe one tradeoff your scheduler makes.
+- A: Conflict detection uses exact time matching, not duration-based overlap.
+Two tasks are only flagged as conflicting if they share the exact same. A walk at 08:00 and a grooming at 08:15 would not be flagged even if the walk takes 45 minutes. 
 - Why is that tradeoff reasonable for this scenario?
+- A: This is reasonable here because most pet care tasks are instant events rather than extended blocks. Asking users to estimate duration for every task adds friction for little gain. The most
+common real mistake of double-booking the exact same slot is fully caught.
 
 ---
 

@@ -1,10 +1,3 @@
-"""
-main.py — PawPal+ CLI Demo
-============================
-Tests that Owner, Pet, and Task all work correctly in the terminal.
-Run with:  python main.py
-"""
-
 from datetime import date, timedelta
 from pawpal_system import Owner, Pet, Task, Scheduler
 
@@ -34,10 +27,10 @@ def print_tasks(title: str, task_list: list) -> None:
 
 
 # ─────────────────────────────────────────────────────────────
-# 1. CREATE OWNER AND PETS
+# 1. SET UP OWNER AND PETS
 # ─────────────────────────────────────────────────────────────
 
-banner("1 · Create Owner & Pets")
+banner("1 · Owner & Pets")
 
 owner = Owner(name="Jordan Lee", email="jordan@example.com")
 
@@ -49,24 +42,24 @@ owner.add_pet(buddy)
 owner.add_pet(whiskers)
 owner.add_pet(thumper)
 
-print(f"  Owner : {owner.name}  ({owner.email})")
-print(f"  Pets  : {owner.pet_count()} registered")
+print(f"  Owner : {owner.name}")
 for pet in owner.pets:
     print(f"          {pet.species_emoji()}  {pet.name} — {pet.breed}, age {pet.age}")
 
 
 # ─────────────────────────────────────────────────────────────
-# 2. ADD TASKS
+# 2. ADD TASKS (intentionally out of order to test sorting)
 # ─────────────────────────────────────────────────────────────
 
 banner("2 · Add Tasks")
 
 today = str(date.today())
 
+buddy.add_task(Task("Evening walk",      "18:00", today, "daily",  "medium", task_type="walk"))
 buddy.add_task(Task("Morning walk",      "07:30", today, "daily",  "high",   task_type="walk"))
 buddy.add_task(Task("Breakfast feeding", "08:00", today, "daily",  "high",   task_type="feeding"))
 buddy.add_task(Task("Heartworm pill",    "09:00", today, "weekly", "high",   task_type="medication"))
-buddy.add_task(Task("Evening walk",      "18:00", today, "daily",  "medium", task_type="walk"))
+buddy.add_task(Task("Vet checkup",       "10:00", today, "once",   "high",   task_type="vet"))
 
 whiskers.add_task(Task("Breakfast feeding", "08:00", today, "daily",  "high",   task_type="feeding"))
 whiskers.add_task(Task("Flea medication",   "09:30", today, "weekly", "medium", task_type="medication"))
@@ -80,111 +73,114 @@ print(f"  Buddy    — {buddy.task_count()} tasks")
 print(f"  Whiskers — {whiskers.task_count()} tasks")
 print(f"  Thumper  — {thumper.task_count()} tasks")
 
-
-# ─────────────────────────────────────────────────────────────
-# 3. VIEW ALL TASKS VIA OWNER
-# ─────────────────────────────────────────────────────────────
-
-banner("3 · All Tasks via get_all_tasks()")
-
-print_tasks("Every task across all pets", owner.get_all_tasks())
+scheduler = Scheduler(owner)
 
 
 # ─────────────────────────────────────────────────────────────
-# 4. MARK COMPLETE + RESCHEDULING
+# 3. SORTING
 # ─────────────────────────────────────────────────────────────
 
-banner("4 · Mark Complete & Reschedule")
+banner("3 · Sorting")
 
-# Mark Buddy's first task complete
-result = buddy.tasks[0].mark_complete()
-print(f"\n  {result}")
-
-# Check pending / completed split
-print(f"  Buddy pending   : {len(buddy.get_pending_tasks())}")
-print(f"  Buddy completed : {len(buddy.get_completed_tasks())}")
-
-# Verify daily task reschedules to tomorrow
-tomorrow  = str(date.today() + timedelta(days=1))
-next_task = buddy.tasks[0].reschedule()
-
-print(f"\n  Reschedule check (daily task):")
-print(f"    Original date : {buddy.tasks[0].due_date}")
-print(f"    Next date     : {next_task.due_date}  ← should be {tomorrow}")
-print(f"    Fresh task_id : {next_task.task_id[:8]}...  ← different from original")
-
-# Verify one-time task does NOT reschedule
-vet = Task("Vet checkup", "10:00", today, "once", "high", task_type="vet")
-print(f"\n  Reschedule check (once task): {vet.reschedule()}  ← should be None ✅")
+print_tasks("Sorted by TIME only",          scheduler.sort_by_time())
+print_tasks("Sorted by PRIORITY then time", scheduler.sort_by_priority_then_time())
 
 
 # ─────────────────────────────────────────────────────────────
-# 5. PENDING / COMPLETED FILTERS
+# 4. FILTERING
 # ─────────────────────────────────────────────────────────────
 
-banner("5 · Pending and Completed Filters")
+banner("4 · Filtering")
 
-print(f"\n  Buddy total     : {buddy.task_count()}")
-print(f"  Buddy pending   : {len(buddy.get_pending_tasks())}")
-print(f"  Buddy completed : {len(buddy.get_completed_tasks())}")
-
-print("\n  Pending:")
-for t in buddy.get_pending_tasks():
-    print(f"    {t.priority_emoji()} {t.emoji()}  {t.description}")
-
-print("\n  Completed:")
-for t in buddy.get_completed_tasks():
-    print(f"    ✅  {t.description}")
+print_tasks("Buddy's tasks only",         scheduler.filter_by_pet("Buddy"))
+print_tasks("High priority tasks only",   scheduler.filter_by_priority("high"))
+print_tasks("Today's tasks (smart view)", scheduler.get_todays_tasks())
 
 
 # ─────────────────────────────────────────────────────────────
-# 6. REMOVE A TASK
+# 5. CONFLICT DETECTION
 # ─────────────────────────────────────────────────────────────
 
-banner("6 · Remove a Task")
+banner("5 · Conflict Detection")
 
-before  = whiskers.task_count()
-removed = whiskers.remove_task("Playtime")
-after   = whiskers.task_count()
+# Add a deliberate clash to demonstrate detection
+buddy.add_task(Task("Grooming", "08:00", today, "once", "medium", task_type="vet"))
 
-print(f"  Removed 'Playtime' : {removed}  ← should be True ✅")
-print(f"  Whiskers tasks     : {before} → {after}")
+conflicts = scheduler.detect_conflicts()
+if conflicts:
+    print("\n  Conflicts found:")
+    for c in conflicts:
+        print(f"    {c}")
+else:
+    print("  No conflicts ✅")
 
-not_found = whiskers.remove_task("Does not exist")
-print(f"  Remove missing     : {not_found}  ← should be False ✅")
-
-
-# ─────────────────────────────────────────────────────────────
-# 7. OWNER HELPERS
-# ─────────────────────────────────────────────────────────────
-
-banner("7 · Owner Helpers")
-
-found     = owner.get_pet("buddy")
-not_found = owner.get_pet("Nemo")
-
-print(f"  get_pet('buddy') : {found.name if found else None}  ← should be Buddy ✅")
-print(f"  get_pet('Nemo')  : {not_found}  ← should be None ✅")
-print(f"  pet_count()      : {owner.pet_count()}  ← should be 3 ✅")
+buddy.remove_task("Grooming")
+print("  (demo conflict removed)")
 
 
 # ─────────────────────────────────────────────────────────────
-# 8. EMOJI DISPLAY
+# 6. COMPLETE TASKS + AUTO RESCHEDULING
 # ─────────────────────────────────────────────────────────────
 
-banner("8 · Emoji Display")
-
-samples = [
-    Task("Walk",      "07:00", today, priority="high",   task_type="walk"),
-    Task("Feed",      "08:00", today, priority="high",   task_type="feeding"),
-    Task("Give pill", "09:00", today, priority="high",   task_type="medication"),
-    Task("Vet visit", "10:00", today, priority="medium", task_type="vet"),
-    Task("Play",      "15:00", today, priority="low",    task_type="general"),
-]
+banner("6 · Complete & Reschedule")
 
 print()
-for t in samples:
-    print(f"  {t.priority_emoji()} {t.emoji()}  {t.description:12}  priority={t.priority}")
+print("  " + scheduler.mark_task_complete_and_reschedule("Buddy",    "Morning walk"))
+print("  " + scheduler.mark_task_complete_and_reschedule("Whiskers", "Breakfast feeding"))
+print("  " + scheduler.mark_task_complete_and_reschedule("Buddy",    "Vet checkup"))
+
+print_tasks("Buddy after completions", scheduler.filter_by_pet("Buddy"))
 
 
-print("\n\n  🎉  Demo complete — core classes are working!\n")
+# ─────────────────────────────────────────────────────────────
+# 7. NEXT AVAILABLE SLOT
+# ─────────────────────────────────────────────────────────────
+
+banner("7 · Next Available Slot")
+
+tomorrow  = str(date.today() + timedelta(days=1))
+print(f"\n  First free slot today    : {scheduler.find_next_available_slot(today,    '07:00')}")
+print(f"  First free slot tomorrow : {scheduler.find_next_available_slot(tomorrow, '07:00')}")
+
+
+# ─────────────────────────────────────────────────────────────
+# 8. PRIORITY-WEIGHTED SCHEDULE
+# ─────────────────────────────────────────────────────────────
+
+banner("8 · Priority-Weighted Schedule")
+
+print_tasks("Top 5 tasks by weighted score", scheduler.build_priority_schedule(today, max_tasks=5))
+
+
+# ─────────────────────────────────────────────────────────────
+# 9. SUMMARY
+# ─────────────────────────────────────────────────────────────
+
+banner("9 · Summary")
+
+s = scheduler.get_summary()
+print(f"\n  🐾 Pets           : {s['pets']}")
+print(f"  📋 Total tasks    : {s['total']}")
+print(f"  ✅ Completed      : {s['completed']}")
+print(f"  ⬜ Pending        : {s['pending']}")
+print(f"  🔴 High priority  : {s['high_priority_pending']}")
+
+
+# ─────────────────────────────────────────────────────────────
+# 10. DATA PERSISTENCE
+# ─────────────────────────────────────────────────────────────
+
+banner("10 · Save & Load Data")
+
+owner.save_to_json("data.json")
+print("  Saved to data.json")
+
+loaded = Owner.load_from_json("data.json")
+if loaded:
+    total = sum(p.task_count() for p in loaded.pets)
+    print(f"  Loaded owner : {loaded.name}")
+    print(f"  Pets         : {[p.name for p in loaded.pets]}")
+    print(f"  Tasks        : {total}")
+
+
+print("\n\n  🎉  Demo complete!\n")

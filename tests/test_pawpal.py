@@ -1,9 +1,3 @@
-"""
-tests/test_pawpal.py — PawPal+ Test Suite
-==========================================
-Run with:  python -m pytest tests/ -v
-"""
-
 import sys
 import os
 from datetime import date, timedelta
