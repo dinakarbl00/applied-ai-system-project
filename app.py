@@ -1,4 +1,5 @@
 import streamlit as st
+from ai_advisor import ask_advisor
 from datetime import date
 from pawpal_system import Owner, Pet, Task, Scheduler
 
@@ -133,11 +134,12 @@ st.divider()
 
 # ── TABS ──────────────────────────────────────────────────────
 
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📅 Today",
     "🗓️ All Tasks",
     "🐾 My Pets",
     "🔍 Tools",
+    "🤖 AI Advisor",
 ])
 
 
@@ -303,3 +305,41 @@ with tab4:
                 f"`{task.due_time}` — **{pet_name}**: {task.description}  "
                 f"({task.priority}{bonus})"
             )
+
+# ── TAB 5: AI ADVISOR ─────────────────────────────────────────
+
+with tab5:
+    st.subheader("🤖 AI Care Advisor")
+    st.caption("Ask a pet care question and get personalized AI advice.")
+
+    if not owner.pets:
+        st.info("Add a pet first to use the AI Advisor.")
+    else:
+        selected_pet_name = st.selectbox(
+            "Select a pet",
+            [p.name for p in owner.pets],
+            key="advisor_pet"
+        )
+        selected_pet = owner.get_pet(selected_pet_name)
+
+        question = st.text_input(
+            "Ask a pet care question",
+            placeholder="e.g. How often should I bathe my dog?"
+        )
+
+        if st.button("Ask AI 🤖"):
+            if question.strip():
+                with st.spinner("Thinking..."):
+                    result = ask_advisor(question, selected_pet)
+
+                st.markdown("### 💬 Answer")
+                st.write(result["answer"])
+
+                confidence = result["confidence"]
+                st.markdown(f"**📊 Confidence:** {confidence:.0%}")
+                st.progress(confidence)
+
+                if result["flagged"]:
+                    st.warning("⚠️ Guardrail triggered: low confidence or off-topic question.")
+            else:
+                st.error("Please enter a question.")
