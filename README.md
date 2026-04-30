@@ -1,196 +1,155 @@
-<!-- Created with Claude -->
-# 🐾 PawPal+ — Smart Pet Care Management System
+# 🐾 PawPal+ AI Care
 
-A pet care planning assistant that helps a busy owner stay on top of walks,
-feedings, medications, and vet appointments — with smart algorithmic scheduling.
+## Base Project
+This project extends **PawPal+** (Module 2 — Smart Pet Care Management System).
+You can view the original submission here: [PawPal+ Module 2](https://github.com/dinakarbl00/ai110-pawpal_plus)
 
----
-## 📸 Demo
-
-**CLI demo** — run this to see all features working in the terminal:
-```bash
-python main.py
-```
-
-**Web app** — run this to open the interactive dashboard:
-```bash
-streamlit run app.py
-```
-
-![PawPal+ Dashboard](app_screenshot.png)
+The original system was a scheduling tool that helped pet owners manage walks,
 
 ---
 
-## 🚀 Setup
+## What's New in This Version
+This version adds three new components on top of the original PawPal+ system:
+
+- **AI Care Advisor**: a Gemini-powered assistant that answers personalized pet
+  care questions using the pet's profile (name, species, breed, age) as context.
+- **Confidence scoring and guardrails**: every AI response includes a confidence
+  score. Off-topic or empty questions are automatically flagged and rejected.
+- **Evaluation harness**: a test script that runs 6 predefined inputs through the
+  advisor and prints a pass/fail summary with confidence scores.
+
+---
+
+## System Architecture
+
+![System Architecture](assets/architecture.png)
+
+The system has four layers:
+1. **Interfaces** — Streamlit UI, CLI demo, and evaluation harness
+2. **Core logic** — Owner, Pet, Task, and Scheduler classes in `pawpal_system.py`
+3. **AI advisor** — `ai_advisor.py` builds a pet context prompt, calls Gemini,
+   parses the confidence score, and applies guardrails
+4. **External** — Gemini API for language generation, `data.json` for persistence
+
+---
+
+## Setup Instructions
 
 ```bash
-# 1. Clone the repo and enter the folder
-git clone https://github.com/dinakarbl00/ai110-module2show-pawpal-starter.git  # (or your fork URL)
-cd ai110-module2show-pawpal-starter
+# 1. Clone the repo
+git clone https://github.com/dinakarbl00/applied-ai-system-project.git
+cd applied-ai-system-project
 
-# 2. Create and activate a virtual environment (recommended)
+# 2. Create and activate a virtual environment
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 
 # 3. Install dependencies
 pip install -r requirements.txt
 
-# 4. Run the CLI demo (verifies backend logic in the terminal)
+# 4. Add your Gemini API key
+# Create a .env file in the project root with this line:
+# GEMINI_API_KEY=your-key-here
+# Get a free key at https://aistudio.google.com/app/apikey
+
+# 5. Run the CLI demo
 python main.py
 
-# 5. Run the web app
+# 6. Run the AI advisor demo
+python ai_advisor.py
+
+# 7. Run the evaluation harness
+python evaluate.py
+
+# 8. Run the web app
 streamlit run app.py
 
-# 6. Run the test suite
+# 9. Run the test suite
 python -m pytest tests/ -v
 ```
 
 ---
 
-## 🏗️ System Architecture
+## Sample Interactions
 
-Four Python classes work together in `pawpal_system.py`:
+### AI Care Advisor — on-topic question
+Pet: Buddy (Labrador, 3 yrs)
+Question: How often should I walk my dog?
+Answer: For a 3-year-old Labrador like Buddy, we recommend walking him at least
+twice a day, with each walk lasting 30-60 minutes. Labradors are an energetic
+breed and benefit from consistent physical activity.
+Confidence: 95%
 
-**`Task`** — The smallest unit of work. Holds `description`, `due_time` (HH:MM),
-`due_date` (YYYY-MM-DD), `frequency` (once / daily / weekly), `priority`
-(low / medium / high), `completed`, `task_type`, and `task_id` (uuid).
-Key methods: `mark_complete()` and `reschedule()` which returns a new Task
-for the next occurrence of a recurring activity.
+### AI Care Advisor — feeding question
+Pet: Buddy (Labrador, 3 yrs)
+Question: What should I feed my pet and how many times a day?
+Answer: For Buddy, your 3-year-old Labrador, feed a high-quality commercial dog
+food formulated for adult large breeds twice per day. Follow the packaging
+guidelines and always provide fresh water.
+Confidence: 95%
 
-**`Pet`** — Stores a pet's identity (name, species, breed, age) and owns a list
-of Task objects. Manages them via `add_task()`, `remove_task()`,
-`remove_task_by_id()`, `get_pending_tasks()`, and `task_count()`.
+### AI Care Advisor — guardrail triggered
+Pet: Buddy (Labrador, 3 yrs)
+Question: What is the capital of France?
+Answer: I can only help with pet care questions.
+Confidence: 0%
+⚠️ Guardrail triggered: low confidence or off-topic question.
 
-**`Owner`** — Top-level data store. Holds pets and provides `get_all_tasks()`,
-which flattens every pet's tasks into one list of `(pet_name, Task)` tuples.
-This is the only way the Scheduler reads data, keeping the two classes
-loosely coupled. Also handles JSON persistence via `save_to_json()` and
-`load_from_json()`.
-
-**`Scheduler`** — Pure algorithmic layer. Holds no data of its own — only
-receives an Owner and operates on what `get_all_tasks()` returns. This
-separation means the Scheduler can be tested in complete isolation.
-
----
-
-## 📊 UML Class Diagram
-
-See `uml_final.png` in the project root.
-
-Key relationships:
-- `Owner` **owns** (composition) zero or more `Pet` objects
-- `Pet` **owns** (composition) zero or more `Task` objects
-- `Scheduler` **depends on** one `Owner` via `get_all_tasks()`
+### Evaluation harness
+RESULTS: 6/6 tests passed
+Average confidence score: 64%
+🎉 All tests passed!
 
 ---
 
-## ✨ Features
+## Design Decisions
 
-### Core Features
-- Add owners, pets, and tasks with full detail
-- Task types with emojis: walk 🐾 · feeding 🍖 · medication 💊 · vet 🏥 · general 📋
-- Priority levels with colour indicators: high 🔴 · medium 🟡 · low 🟢
-- Mark tasks complete with a single click in the UI
+**Why Gemini over a local model?**
+Gemini's free tier is sufficient for this project's scope and requires no local
+hardware. The trade-off is a network dependency, which is mitigated by the
+try/except error handling in `ai_advisor.py`.
 
-### Smarter Scheduling
+**Why confidence scoring via prompt instruction?**
+Asking the model to self-report confidence is a lightweight reliability mechanism
+that requires no additional infrastructure. The limitation is that the model's
+self-reported confidence may not always be calibrated accurately.
 
-**Sorting — two strategies**
-`sort_by_time()` orders tasks chronologically. Zero-padded HH:MM strings
-sort correctly with plain string comparison — no datetime parsing needed.
-`sort_by_priority_then_time()` uses a composite key `(-priority_rank, due_time)`
-so high-urgency tasks surface first, with time as a tiebreaker within each tier.
-
-**Filtering**
-`filter_by_pet()`, `filter_by_status()`, `filter_by_date()`, and
-`filter_by_priority()` all return `(pet_name, Task)` tuples so pet context
-is never lost during filtering.
-
-**Conflict Detection**
-`detect_conflicts()` groups tasks into a dict keyed by `(date, time)`.
-Any slot with two or more entries is a conflict. Returns human-readable
-warning strings — never crashes the program.
-
-**Recurring Tasks**
-`mark_task_complete_and_reschedule()` marks a task done then calls
-`task.reschedule()`. Daily tasks reappear `today + 1 day`; weekly tasks
-`+ 7 days`. One-time tasks simply complete with no follow-up.
-
-### Additional Features
-
-**Next Available Slot**
-`find_next_available_slot(date, start_time)` collects all booked times into
-a hash set (O(1) lookup), then walks 30-minute increments until a free slot
-is found. Suggested by Agent Mode — the hash-set approach was chosen over a
-nested loop for being both faster and easier to read.
-
-**Priority-Weighted Schedule**
-`build_priority_schedule(date, max_tasks)` scores each pending task:
-high = 30 pts, medium = 20 pts, low = 10 pts, +5 bonus for medication tasks.
-Returns the top-ranked tasks, sub-sorted by time within each score band.
-
-**Data Persistence**
-`owner.save_to_json("data.json")` serialises the full owner → pets → tasks
-tree. `Owner.load_from_json()` restores it. The Streamlit app loads saved
-data automatically on every page refresh via `st.session_state`.
-
-**Professional UI**
-- Emoji indicators for task type and priority throughout
-- `st.container(border=True)` cards for each task
-- `st.table()` for the all-tasks view with sort and filter controls
-- Summary metric cards (pets / total / pending / high-priority)
-- Conflict warnings displayed via `st.warning()`
-- 4 tabs: Today · All Tasks · My Pets · Tools
+**Why keep the AI advisor separate from `pawpal_system.py`?**
+Separation of concerns — the core scheduling logic has no dependency on the AI
+layer. This means the original system still works fully without an API key.
 
 ---
 
-## 📁 File Structure
+## Testing Summary
 
-```
-pawpal+/
-├── pawpal_system.py     # Core logic — Task, Pet, Owner, Scheduler
-├── main.py              # CLI demo — run this first to verify the backend
-├── app.py               # Streamlit UI
-├── data.json            # Auto-created on first save
-├── uml_final.png        # UML class diagram
-├── README.md
-├── reflection.md
-├── requirements.txt
-└── tests/
-    ├── __init__.py
-    └── test_pawpal.py   # 29 tests across 9 behaviour groups
-```
+The evaluation harness in `evaluate.py` runs 6 test cases:
+- 4 legitimate pet care questions — all passed with 95-100% confidence
+- 1 off-topic question — correctly flagged with 0% confidence
+- 1 empty input — correctly flagged with 0% confidence
+
+6/6 tests passed. Average confidence across all inputs was 64% (lower because
+the two guardrail tests score 0% by design). Average confidence on legitimate
+questions only was 96%.
+
+The existing 29-test suite in `tests/test_pawpal.py` continues to pass in full,
+confirming the new AI layer did not break any original functionality.
 
 ---
 
-## 🧪 Testing PawPal+
+## Reflection
 
-```bash
-python -m pytest tests/ -v
-```
+Adding an AI layer revealed how important prompt design is. The system prompt
+instruction to end every response with `CONFIDENCE: 0.XX` was simple but
+effective, it gave the application a structured hook to parse and act on.
 
-29 tests across 9 groups:
+The main limitation is that Gemini's self-reported confidence is not truly
+calibrated, it tends to report high confidence even on borderline questions.
+A more robust approach would use a separate validation model or a retrieval
+step to ground answers in verified pet care sources.
 
-| Group | What it verifies |
-|---|---|
-| Task completion | `mark_complete()` flips the flag and returns a message |
-| Adding tasks | `add_task()` increments count; pending/completed split is correct |
-| Sorting | Chronological order; high priority first; time as tiebreaker |
-| Rescheduling | Daily → tomorrow; weekly → next week; once → no new task |
-| Conflicts | Same slot warns; different times don't; same time different date doesn't |
-| Filtering | By pet name, status, and priority level |
-| Edge cases | Empty pet/owner; slot finder; missing pet/task returns gracefully |
-| Persistence | JSON round-trip; missing file returns None; completed flag preserved |
-| Priority schedule | High ranked first; medication bonus; max_tasks cap respected |
-
-**Confidence level: ⭐⭐⭐⭐⭐** — all 29 tests pass.
+[**Model Card**](model_card.md)
 
 ---
 
-## 🤖 Agent Mode Note
-
-The **Next Available Slot** algorithm was the primary place Agent Mode was
-used. After describing the goal, the agent proposed two strategies:
-a nested loop (O(n²)) and a hash-set approach (O(n)). The hash-set version
-was accepted — it was both faster and clearer. The agent then scaffolded
-`find_next_available_slot()` and the edge cases were verified manually
-before committing.
+## Video Walkthrough
+[Watch the demo walkthrough](https://www.loom.com/share/666a5b2f621d4807a5d89aa24a7ced3e)
