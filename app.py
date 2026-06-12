@@ -133,7 +133,7 @@ with tab_eval:
     )
 
     if st.button("▶️ Run Evaluation", type="primary"):
-        with st.spinner("Running 15 test cases... (~20 seconds)"):
+        with st.spinner("Running 15 test cases... (~1 minute)"):
             summary = run_evaluation()
         st.session_state["eval_summary"] = summary
 

@@ -4,7 +4,7 @@ An AI-powered pet care assistant built with a production-grade architecture:
 context-aware LLM responses, confidence scoring, a guardrail system, and a
 15-case evaluation harness — all accessible via a live Streamlit web app.
 
-🔗 **[Live Demo →](https://pawpal-plus.streamlit.app)**
+🔗 **[Live Demo →](https://pawpal-plus-axsgn2plvys4jshtkmhk47.streamlit.app/)**
 
 ---
 
