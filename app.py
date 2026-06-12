@@ -1,345 +1,327 @@
 import streamlit as st
+from datetime import date, time as dtime
+from pawpal_system import Owner, Pet, Task
 from ai_advisor import ask_advisor
-from datetime import date
-from pawpal_system import Owner, Pet, Task, Scheduler
+from evaluate import run_evaluation
 
-# ──────────────────────────────────────────────────────────────
-# PAGE CONFIG
-# ──────────────────────────────────────────────────────────────
-
+# ── PAGE CONFIG ───────────────────────────────────────────────
 st.set_page_config(
-    page_title="PawPal+",
+    page_title="PawPal+ AI Care",
     page_icon="🐾",
     layout="wide",
 )
 
-# ──────────────────────────────────────────────────────────────
-# SESSION STATE
-# ──────────────────────────────────────────────────────────────
+# ── LOAD OWNER DATA ───────────────────────────────────────────
+def load_owner() -> Owner:
+    owner = Owner.load_from_json("data.json")
+    if not owner:
+        owner = Owner(name="Demo User")
+        demo_pet = Pet(name="Buddy", species="dog", breed="Labrador", age=3)
+        owner.add_pet(demo_pet)
+        owner.save_to_json("data.json")
+    return owner
 
 if "owner" not in st.session_state:
-    loaded = Owner.load_from_json("data.json")
-    st.session_state.owner = loaded if loaded else Owner(name="My Household")
+    st.session_state.owner = load_owner()
 
-owner:     Owner     = st.session_state.owner
-scheduler: Scheduler = Scheduler(owner)
+owner: Owner = st.session_state.owner
 
-# ──────────────────────────────────────────────────────────────
-# SIDEBAR
-# ──────────────────────────────────────────────────────────────
+# ── HEADER ────────────────────────────────────────────────────
+st.title("🐾 PawPal+ AI Care")
+st.caption("AI-powered pet care advisor with eval harness, guardrails & confidence scoring")
 
-with st.sidebar:
-    st.title("🐾 PawPal+")
-    st.caption("Smart Pet Care Manager")
-    st.divider()
+# ── TABS ──────────────────────────────────────────────────────
+tab_advisor, tab_eval, tab_pets = st.tabs([
+    "🤖 AI Advisor",
+    "📊 Eval Dashboard",
+    "🐶 Pet Management",
+])
 
-    # ── ADD A PET ─────────────────────────────────────────────
-    st.subheader("➕ Add a New Pet")
-
-    with st.form("add_pet_form", clear_on_submit=True):
-        p_name    = st.text_input("Pet Name",    placeholder="e.g. Buddy")
-        p_species = st.selectbox("Species",      ["dog", "cat", "rabbit", "bird", "fish", "other"])
-        p_breed   = st.text_input("Breed",       placeholder="e.g. Labrador")
-        p_age     = st.number_input("Age (yrs)", min_value=0, max_value=30, value=1)
-
-        if st.form_submit_button("Add Pet 🐾"):
-            if p_name.strip():
-                owner.add_pet(Pet(
-                    name=p_name.strip(),
-                    species=p_species,
-                    breed=p_breed.strip() or "Unknown",
-                    age=int(p_age),
-                ))
-                owner.save_to_json("data.json")
-                st.success(f"Added {p_name.strip()}!")
-                st.rerun()
-            else:
-                st.error("Please enter a pet name.")
-
-    st.divider()
-
-    # ── SCHEDULE A TASK ───────────────────────────────────────
-    st.subheader("📋 Schedule a Task")
+# ══════════════════════════════════════════════════════════════
+# TAB 1 — AI ADVISOR
+# ══════════════════════════════════════════════════════════════
+with tab_advisor:
+    st.subheader("AI Pet Care Advisor")
+    st.write("Ask any pet care question. The advisor uses your pet's profile to give personalized answers.")
 
     if not owner.pets:
-        st.info("Add a pet first!")
+        st.warning("No pets found. Add a pet in the **Pet Management** tab first.")
     else:
-        with st.form("add_task_form", clear_on_submit=True):
-            t_pet      = st.selectbox("For Pet",      [p.name for p in owner.pets])
-            t_desc     = st.text_input("Description", placeholder="e.g. Morning walk")
-            t_type     = st.selectbox("Task Type",    ["walk", "feeding", "medication", "vet", "general"])
-            t_time     = st.time_input("Time")
-            t_date     = st.date_input("Date", value=date.today())
-            t_freq     = st.selectbox("Frequency",    ["once", "daily", "weekly"])
-            t_priority = st.selectbox("Priority",     ["high", "medium", "low"])
+        # Pet selector
+        pet_names = [p.name for p in owner.pets]
+        selected_name = st.selectbox("Select your pet", pet_names, key="advisor_pet_select")
+        selected_pet = next(p for p in owner.pets if p.name == selected_name)
 
-            if st.form_submit_button("Add Task ✅"):
-                if t_desc.strip() and t_time:
-                    pet = owner.get_pet(t_pet)
-                    pet.add_task(Task(
-                        description=t_desc.strip(),
-                        due_time=t_time.strftime("%H:%M"),
-                        due_date=str(t_date),
-                        frequency=t_freq,
-                        priority=t_priority,
-                        task_type=t_type,
-                    ))
-                    owner.save_to_json("data.json")
-                    st.success(f"Task added to **{t_pet}**!")
-                    st.rerun()
+        st.caption(
+            f"**{selected_pet.name}** · {selected_pet.species.title()} · "
+            f"{selected_pet.breed} · {selected_pet.age} yrs old"
+        )
+
+        # Per-pet conversation history in session state
+        history_key = f"chat_history_{selected_pet.name}"
+        if history_key not in st.session_state:
+            st.session_state[history_key] = []
+
+        history = st.session_state[history_key]
+
+        # Clear button
+        if st.button("🗑️ Clear conversation", key="clear_chat"):
+            st.session_state[history_key] = []
+            st.rerun()
+
+        st.divider()
+
+        # Render full history first — always top to bottom
+        if not history:
+            st.info("No conversation yet. Ask your first question below!")
+        else:
+            for turn in history:
+                if turn["role"] == "user":
+                    with st.chat_message("user"):
+                        st.write(turn["text"])
                 else:
-                    st.error("Please fill in description and time.")
+                    with st.chat_message("assistant"):
+                        if turn.get("flagged"):
+                            st.warning(turn["text"])
+                            st.caption("🔴 Guardrail triggered — off-topic or low confidence")
+                        else:
+                            st.write(turn["text"])
+                            conf = turn.get("confidence", 0.5)
+                            if conf >= 0.8:
+                                badge = f"🟢 Confidence: {conf:.0%}"
+                            elif conf >= 0.5:
+                                badge = f"🟡 Confidence: {conf:.0%}"
+                            else:
+                                badge = f"🔴 Confidence: {conf:.0%}"
+                            st.caption(badge)
 
-    st.divider()
+        # Chat input — always renders at bottom
+        question = st.chat_input(
+            placeholder=f"Ask something about {selected_pet.name}...",
+        )
 
-    # ── SAVE / RESET ──────────────────────────────────────────
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("Save 💾"):
-            owner.save_to_json("data.json")
-            st.success("Saved!")
-    with c2:
-        if st.button("Reset 🗑️"):
-            st.session_state.owner = Owner(name="My Household")
-            st.session_state.owner.save_to_json("data.json")
+        if question:
+            # Build history in ask_advisor format
+            advisor_history = [
+                {"role": h["role"], "text": h["text"]}
+                for h in history
+            ]
+
+            with st.spinner("Thinking..."):
+                result = ask_advisor(question, selected_pet, history=advisor_history)
+
+            # Append both turns to session state then rerun
+            history.append({"role": "user", "text": question})
+            history.append({
+                "role": "assistant",
+                "text": result["answer"],
+                "confidence": result["confidence"],
+                "flagged": result["flagged"],
+            })
+            st.session_state[history_key] = history
             st.rerun()
 
 
-# ──────────────────────────────────────────────────────────────
-# MAIN AREA
-# ──────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+# TAB 2 — EVAL DASHBOARD
+# ══════════════════════════════════════════════════════════════
+with tab_eval:
+    st.subheader("Evaluation Dashboard")
+    st.write(
+        "This harness runs 15 predefined test cases through the AI advisor "
+        "and measures reliability, confidence calibration, and guardrail behavior."
+    )
 
-st.title("🐾 PawPal+ Dashboard")
-st.caption(f"Today — {date.today().strftime('%A, %B %d, %Y')}")
+    if st.button("▶️ Run Evaluation", type="primary"):
+        with st.spinner("Running 15 test cases... (~20 seconds)"):
+            summary = run_evaluation()
+        st.session_state["eval_summary"] = summary
 
-# ── SUMMARY METRICS ───────────────────────────────────────────
+    if "eval_summary" in st.session_state:
+        summary = st.session_state["eval_summary"]
 
-summary = scheduler.get_summary()
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("🐾 Pets",          summary["pets"])
-m2.metric("📋 Total Tasks",   summary["total"])
-m3.metric("⬜ Pending",        summary["pending"])
-m4.metric("🔴 High Priority", summary["high_priority_pending"])
+        st.divider()
 
-# ── CONFLICT WARNINGS ─────────────────────────────────────────
+        # Metric cards
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric(
+            "Tests Passed",
+            f"{summary['passed']}/{summary['total']}",
+            delta="All passing" if summary["failed"] == 0 else f"{summary['failed']} failing",
+            delta_color="normal" if summary["failed"] == 0 else "inverse",
+        )
+        m2.metric("Avg Confidence (Legitimate)", f"{summary['avg_legit_confidence']:.0%}")
+        m3.metric("Avg Confidence (All)", f"{summary['avg_confidence']:.0%}")
+        m4.metric("Guardrail Trigger Rate", f"{summary['guardrail_trigger_rate']:.0%}")
 
-conflicts = scheduler.detect_conflicts()
-if conflicts:
-    st.divider()
-    st.subheader("⚠️ Scheduling Conflicts")
-    for c in conflicts:
-        st.warning(c)
+        st.divider()
 
-st.divider()
+        # Category summary row
+        st.subheader("Results by Category")
+        cat_data = {}
+        for row in summary["results"]:
+            cat = row["category"]
+            if cat not in cat_data:
+                cat_data[cat] = {"passed": 0, "total": 0}
+            cat_data[cat]["total"] += 1
+            if row["passed"]:
+                cat_data[cat]["passed"] += 1
 
-# ── TABS ──────────────────────────────────────────────────────
+        cols = st.columns(len(cat_data))
+        for i, (cat, data) in enumerate(cat_data.items()):
+            rate = data["passed"] / data["total"]
+            emoji = "✅" if rate == 1.0 else "⚠️"
+            cols[i].metric(f"{emoji} {cat}", f"{data['passed']}/{data['total']}")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📅 Today",
-    "🗓️ All Tasks",
-    "🐾 My Pets",
-    "🔍 Tools",
-    "🤖 AI Advisor",
-])
+        st.divider()
 
+        # Results table with category filter
+        st.subheader("Test Case Results")
+        categories = ["All"] + sorted(set(r["category"] for r in summary["results"]))
+        selected_cat = st.selectbox("Filter by category", categories, key="eval_filter")
 
-# ── TAB 1: TODAY ──────────────────────────────────────────────
+        filtered = (
+            summary["results"] if selected_cat == "All"
+            else [r for r in summary["results"] if r["category"] == selected_cat]
+        )
 
-with tab1:
-    st.subheader("📅 Today's Schedule")
-    st.caption("Sorted by priority 🔴 first, then time — powered by Scheduler.get_todays_tasks()")
-
-    todays = scheduler.get_todays_tasks()
-
-    if not todays:
-        st.info("No tasks for today. Add some in the sidebar!")
+        for row in filtered:
+            status_icon = "✅" if row["passed"] else "❌"
+            with st.expander(
+                f"{status_icon} [{row['id']}] [{row['category']}] {row['description']}"
+            ):
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Confidence", f"{row['confidence']:.0%}")
+                c2.metric("Flagged", str(row["flagged"]))
+                c3.metric("Status", "PASS" if row["passed"] else "FAIL")
+                st.caption(f"**Question:** {row['question']}")
+                if row["answer"]:
+                    st.caption(
+                        f"**Answer:** {row['answer'][:200]}"
+                        f"{'...' if len(row['answer']) > 200 else ''}"
+                    )
     else:
-        for pet_name, task in todays:
-            with st.container(border=True):
-                cols = st.columns([0.5, 3.5, 1, 1.2, 1.8])
-                cols[0].write(f"{task.priority_emoji()} {task.emoji()}")
-                cols[1].write(f"**{pet_name}** — {task.description}")
-                cols[2].write(f"`{task.due_time}`")
-                cols[3].write(task.frequency)
+        st.info("Click **▶️ Run Evaluation** to run the test suite and see results.")
 
-                if not task.completed:
-                    key = f"done_{pet_name}_{task.task_id}"
-                    if cols[4].button("Mark Done ✅", key=key):
-                        msg = scheduler.mark_task_complete_and_reschedule(
-                            pet_name, task.description
-                        )
-                        owner.save_to_json("data.json")
-                        st.success(msg)
-                        st.rerun()
+
+# ══════════════════════════════════════════════════════════════
+# TAB 3 — PET MANAGEMENT
+# ══════════════════════════════════════════════════════════════
+with tab_pets:
+    st.subheader("Your Pets")
+
+    if not owner.pets:
+        st.info("No pets yet. Add your first pet below.")
+    else:
+        for pet in owner.pets:
+            with st.expander(f"🐾 {pet.name} — {pet.breed} ({pet.species}, {pet.age} yrs)"):
+
+                # Pending tasks
+                pending = pet.get_pending_tasks()
+                if pending:
+                    st.write("**Pending tasks:**")
+                    for task in pending:
+                        col_task, col_done = st.columns([5, 1])
+                        with col_task:
+                            st.write(
+                                f"{task.emoji()} {task.priority_emoji()} "
+                                f"**{task.description}** — "
+                                f"{task.due_date} @ {task.due_time} "
+                                f"({task.frequency})"
+                            )
+                        with col_done:
+                            if st.button(
+                                "✅ Done",
+                                key=f"done_{pet.name}_{task.task_id}"
+                            ):
+                                task.mark_complete()
+                                owner.save_to_json("data.json")
+                                st.session_state.owner = owner
+                                st.rerun()
                 else:
-                    cols[4].success("Done ✅")
+                    st.write("No pending tasks.")
 
+                st.divider()
 
-# ── TAB 2: ALL TASKS ──────────────────────────────────────────
+                # Add task form
+                st.write("**Add a task:**")
+                task_col1, task_col2 = st.columns(2)
+                with task_col1:
+                    new_task_desc = st.text_input(
+                        "Task description",
+                        placeholder="e.g. Evening walk, Flea treatment",
+                        key=f"task_input_{pet.name}",
+                    )
+                    task_date = st.date_input(
+                        "Due date",
+                        value=date.today(),
+                        key=f"task_date_{pet.name}",
+                    )
+                    task_time = st.time_input(
+                        "Due time",
+                        value=dtime(8, 0),
+                        key=f"task_time_{pet.name}",
+                    )
+                with task_col2:
+                    task_type = st.selectbox(
+                        "Task type",
+                        ["general", "walk", "feeding", "medication", "vet"],
+                        key=f"task_type_{pet.name}",
+                    )
+                    task_priority = st.selectbox(
+                        "Priority",
+                        ["medium", "high", "low"],
+                        key=f"task_priority_{pet.name}",
+                    )
+                    task_freq = st.selectbox(
+                        "Frequency",
+                        ["once", "daily", "weekly"],
+                        key=f"task_freq_{pet.name}",
+                    )
 
-with tab2:
-    st.subheader("🗓️ All Tasks")
-
-    col_sort, col_pet, col_status = st.columns(3)
-    with col_sort:
-        sort_by = st.radio("Sort by", ["Priority → Time", "Time only"], horizontal=True)
-    with col_pet:
-        pet_filter = st.selectbox("Pet", ["All"] + [p.name for p in owner.pets])
-    with col_status:
-        status_filter = st.selectbox("Status", ["All", "Pending", "Completed"])
-
-    # apply filters
-    tasks = (
-        scheduler.filter_by_pet(pet_filter)
-        if pet_filter != "All"
-        else owner.get_all_tasks()
-    )
-    if status_filter == "Pending":
-        tasks = [(n, t) for n, t in tasks if not t.completed]
-    elif status_filter == "Completed":
-        tasks = [(n, t) for n, t in tasks if t.completed]
-
-    # apply sort
-    tasks = (
-        scheduler.sort_by_priority_then_time(tasks)
-        if sort_by == "Priority → Time"
-        else scheduler.sort_by_time(tasks)
-    )
-
-    if not tasks:
-        st.info("No tasks match your filters.")
-    else:
-        rows = []
-        for pet_name, task in tasks:
-            rows.append({
-                "Pet":       f"{task.emoji()} {pet_name}",
-                "Task":      task.description,
-                "Time":      task.due_time,
-                "Date":      task.due_date,
-                "Priority":  f"{task.priority_emoji()} {task.priority}",
-                "Frequency": task.frequency,
-                "Status":    "✅ Done" if task.completed else "⬜ Pending",
-            })
-        st.table(rows)
-
-
-# ── TAB 3: MY PETS ────────────────────────────────────────────
-
-with tab3:
-    st.subheader("🐾 My Pets")
-
-    if not owner.pets:
-        st.info("No pets yet. Add one in the sidebar!")
-    else:
-        cols = st.columns(min(len(owner.pets), 3))
-        for i, pet in enumerate(owner.pets):
-            with cols[i % 3]:
-                with st.container(border=True):
-                    st.markdown(f"### {pet.species_emoji()} {pet.name}")
-                    st.write(f"**Species:** {pet.species.title()}")
-                    st.write(f"**Breed:**   {pet.breed}")
-                    st.write(f"**Age:**     {pet.age} yr{'s' if pet.age != 1 else ''}")
-                    pending = len(pet.get_pending_tasks())
-                    done    = len(pet.get_completed_tasks())
-                    st.write(f"**Tasks:**   {pending} pending, {done} done")
-
-                    if pet.tasks:
-                        with st.expander("View all tasks"):
-                            for task in pet.tasks:
-                                status = "✅" if task.completed else "⬜"
-                                st.write(
-                                    f"{status} {task.priority_emoji()} {task.emoji()} "
-                                    f"`{task.due_time}` {task.description}"
-                                )
-
-                    if st.button(f"Remove {pet.name} 🗑️", key=f"rm_{pet.name}"):
-                        owner.remove_pet(pet.name)
+                if st.button("➕ Add Task", key=f"add_task_{pet.name}"):
+                    if new_task_desc.strip():
+                        new_task = Task(
+                            description=new_task_desc.strip(),
+                            due_time=task_time.strftime("%H:%M"),
+                            due_date=str(task_date),
+                            frequency=task_freq,
+                            priority=task_priority,
+                            task_type=task_type,
+                        )
+                        pet.add_task(new_task)
                         owner.save_to_json("data.json")
+                        st.session_state.owner = owner
+                        st.success(f"✅ Task added to {pet.name}!")
                         st.rerun()
-
-
-# ── TAB 4: TOOLS ──────────────────────────────────────────────
-
-with tab4:
-    st.subheader("🔍 Smart Tools")
-
-    # Next Available Slot
-    st.markdown("#### 🕐 Find Next Available Slot")
-    st.caption("Scans booked times and returns the first free 30-minute window.")
-
-    slot_col1, slot_col2 = st.columns(2)
-    with slot_col1:
-        slot_date  = st.date_input("Date", value=date.today(), key="slot_date")
-    with slot_col2:
-        slot_start = st.time_input("Search from", key="slot_start")
-
-    if st.button("Find Free Slot 🔍"):
-        start_str = slot_start.strftime("%H:%M") if slot_start else "07:00"
-        result    = scheduler.find_next_available_slot(str(slot_date), start_str)
-        st.success(f"✅ Next free slot on **{slot_date}** from {start_str}: **{result}**")
+                    else:
+                        st.error("Please enter a task description.")
 
     st.divider()
+    st.subheader("Add a New Pet")
 
-    # Priority-Weighted Schedule
-    st.markdown("#### ⭐ Priority-Weighted Schedule")
-    st.caption(
-        "Scores each task: high = 30 pts, medium = 20 pts, low = 10 pts, "
-        "+5 bonus for medication. Returns top-ranked pending tasks."
-    )
+    with st.form("add_pet_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            new_name    = st.text_input("Pet name")
+            new_species = st.selectbox("Species", ["dog", "cat", "rabbit", "bird", "other"])
+        with col2:
+            new_breed = st.text_input("Breed")
+            new_age   = st.number_input("Age (years)", min_value=0, max_value=30, value=1)
 
-    plan_col1, plan_col2 = st.columns(2)
-    with plan_col1:
-        plan_date = st.date_input("Date", value=date.today(), key="plan_date")
-    with plan_col2:
-        max_shown = st.slider("Max tasks", 3, 15, 8)
-
-    plan = scheduler.build_priority_schedule(str(plan_date), max_tasks=max_shown)
-
-    if not plan:
-        st.info("No pending tasks on that date.")
-    else:
-        for i, (pet_name, task) in enumerate(plan, 1):
-            bonus = " *(+5 med bonus)*" if task.task_type == "medication" else ""
-            st.markdown(
-                f"**{i}.** {task.priority_emoji()} {task.emoji()}  "
-                f"`{task.due_time}` — **{pet_name}**: {task.description}  "
-                f"({task.priority}{bonus})"
-            )
-
-# ── TAB 5: AI ADVISOR ─────────────────────────────────────────
-
-with tab5:
-    st.subheader("🤖 AI Care Advisor")
-    st.caption("Ask a pet care question and get personalized AI advice.")
-
-    if not owner.pets:
-        st.info("Add a pet first to use the AI Advisor.")
-    else:
-        selected_pet_name = st.selectbox(
-            "Select a pet",
-            [p.name for p in owner.pets],
-            key="advisor_pet"
-        )
-        selected_pet = owner.get_pet(selected_pet_name)
-
-        question = st.text_input(
-            "Ask a pet care question",
-            placeholder="e.g. How often should I bathe my dog?"
-        )
-
-        if st.button("Ask AI 🤖"):
-            if question.strip():
-                with st.spinner("Thinking..."):
-                    result = ask_advisor(question, selected_pet)
-
-                st.markdown("### 💬 Answer")
-                st.write(result["answer"])
-
-                confidence = result["confidence"]
-                st.markdown(f"**📊 Confidence:** {confidence:.0%}")
-                st.progress(confidence)
-
-                if result["flagged"]:
-                    st.warning("⚠️ Guardrail triggered: low confidence or off-topic question.")
+        submitted = st.form_submit_button("➕ Add Pet")
+        if submitted:
+            if new_name and new_breed:
+                new_pet = Pet(
+                    name=new_name,
+                    species=new_species,
+                    breed=new_breed,
+                    age=int(new_age),
+                )
+                owner.add_pet(new_pet)
+                owner.save_to_json("data.json")
+                st.session_state.owner = owner
+                st.success(f"✅ {new_name} added successfully!")
+                st.rerun()
             else:
-                st.error("Please enter a question.")
+                st.error("Please fill in both name and breed.")

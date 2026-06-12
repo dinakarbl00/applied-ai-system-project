@@ -1,155 +1,126 @@
-# 🐾 PawPal+ AI Care
+# 🐾 PawPal+ AI Care Advisor
 
-## Base Project
-This project extends **PawPal+** (Module 2 — Smart Pet Care Management System).
-You can view the original submission here: [PawPal+ Module 2](https://github.com/dinakarbl00/ai110-pawpal_plus)
+An AI-powered pet care assistant built with a production-grade architecture:
+context-aware LLM responses, confidence scoring, a guardrail system, and a
+15-case evaluation harness — all accessible via a live Streamlit web app.
 
-The original system was a scheduling tool that helped pet owners manage walks,
-
----
-
-## What's New in This Version
-This version adds three new components on top of the original PawPal+ system:
-
-- **AI Care Advisor**: a Gemini-powered assistant that answers personalized pet
-  care questions using the pet's profile (name, species, breed, age) as context.
-- **Confidence scoring and guardrails**: every AI response includes a confidence
-  score. Off-topic or empty questions are automatically flagged and rejected.
-- **Evaluation harness**: a test script that runs 6 predefined inputs through the
-  advisor and prints a pass/fail summary with confidence scores.
+🔗 **[Live Demo →](https://pawpal-plus.streamlit.app)**
 
 ---
 
-## System Architecture
+## What It Does
 
-![System Architecture](assets/architecture.png)
-
-The system has four layers:
-1. **Interfaces** — Streamlit UI, CLI demo, and evaluation harness
-2. **Core logic** — Owner, Pet, Task, and Scheduler classes in `pawpal_system.py`
-3. **AI advisor** — `ai_advisor.py` builds a pet context prompt, calls Gemini,
-   parses the confidence score, and applies guardrails
-4. **External** — Gemini API for language generation, `data.json` for persistence
-
----
-
-## Setup Instructions
-
-```bash
-# 1. Clone the repo
-git clone https://github.com/dinakarbl00/applied-ai-system-project.git
-cd applied-ai-system-project
-
-# 2. Create and activate a virtual environment
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-
-# 3. Install dependencies
-pip install -r requirements.txt
-
-# 4. Add your Gemini API key
-# Create a .env file in the project root with this line:
-# GEMINI_API_KEY=your-key-here
-# Get a free key at https://aistudio.google.com/app/apikey
-
-# 5. Run the CLI demo
-python main.py
-
-# 6. Run the AI advisor demo
-python ai_advisor.py
-
-# 7. Run the evaluation harness
-python evaluate.py
-
-# 8. Run the web app
-streamlit run app.py
-
-# 9. Run the test suite
-python -m pytest tests/ -v
-```
+- **AI Care Advisor** — ask any pet care question and get a personalized answer
+  using your pet's profile (name, species, breed, age) as context
+- **Conversation history** — the advisor remembers earlier questions within a
+  session and gives contextually aware follow-up answers
+- **Confidence scoring** — every response includes a self-reported confidence
+  score; responses below 0.4 are automatically flagged
+- **Guardrail system** — off-topic questions are detected and rejected with a
+  clear explanation
+- **Evaluation harness** — 15 predefined test cases across 5 categories
+  (Nutrition, Exercise, Health, Edge Cases, Guardrails) with live results
+  visible in the app dashboard
+- **Pet management** — add pets and schedule care tasks (walk, feeding,
+  medication, vet) with priority levels, due dates, and recurrence
 
 ---
 
-## Sample Interactions
+## Evaluation Results
 
-### AI Care Advisor — on-topic question
-Pet: Buddy (Labrador, 3 yrs)
-Question: How often should I walk my dog?
-Answer: For a 3-year-old Labrador like Buddy, we recommend walking him at least
-twice a day, with each walk lasting 30-60 minutes. Labradors are an energetic
-breed and benefit from consistent physical activity.
-Confidence: 95%
+| Metric | Result |
+|--------|--------|
+| Tests passed | 15 / 15 |
+| Avg confidence (legitimate inputs) | 89% |
+| Guardrail trigger rate | 100% (3/3) |
 
-### AI Care Advisor — feeding question
-Pet: Buddy (Labrador, 3 yrs)
-Question: What should I feed my pet and how many times a day?
-Answer: For Buddy, your 3-year-old Labrador, feed a high-quality commercial dog
-food formulated for adult large breeds twice per day. Follow the packaging
-guidelines and always provide fresh water.
-Confidence: 95%
+---
 
-### AI Care Advisor — guardrail triggered
-Pet: Buddy (Labrador, 3 yrs)
-Question: What is the capital of France?
-Answer: I can only help with pet care questions.
-Confidence: 0%
-⚠️ Guardrail triggered: low confidence or off-topic question.
+## Architecture
 
-### Evaluation harness
-RESULTS: 6/6 tests passed
-Average confidence score: 64%
-🎉 All tests passed!
+    ┌─────────────────────────────────────────┐
+    │              Streamlit UI               │
+    │   AI Advisor │ Eval Dashboard │ Pets    │
+    └──────────────┬──────────────────────────┘
+                   │
+    ┌──────────────▼──────────────┐
+    │         ai_advisor.py       │
+    │  - Pet context injection    │
+    │  - Conversation history     │
+    │  - Confidence parsing       │
+    │  - Guardrail logic          │
+    └──────────────┬──────────────┘
+                   │
+    ┌──────────────▼──────────────┐
+    │    Groq API (LLaMA 3.3 70B) │
+    │  llama-3.3-70b-versatile    │
+    └──────────────┬──────────────┘
+                   │
+    ┌──────────────▼──────────────┐
+    │       pawpal_system.py      │
+    │  Owner │ Pet │ Task         │
+    │  Scheduler │ JSON persist   │
+    └─────────────────────────────┘
 
 ---
 
 ## Design Decisions
 
-**Why Gemini over a local model?**
-Gemini's free tier is sufficient for this project's scope and requires no local
-hardware. The trade-off is a network dependency, which is mitigated by the
-try/except error handling in `ai_advisor.py`.
+**Why Groq over Gemini?**
+Groq's free tier offers 30 RPM with sub-second latency on LLaMA 3.3 70B —
+significantly faster and more reliable for a demo app than Gemini's 5 RPM
+free tier. The trade-off is a dependency on Groq's infrastructure, mitigated
+by standard try/except error handling.
 
-**Why confidence scoring via prompt instruction?**
-Asking the model to self-report confidence is a lightweight reliability mechanism
-that requires no additional infrastructure. The limitation is that the model's
-self-reported confidence may not always be calibrated accurately.
+**Why self-reported confidence scoring?**
+Asking the model to append `CONFIDENCE: 0.XX` to every response is a
+lightweight reliability signal that requires no additional model calls or
+infrastructure. The known limitation — that LLMs tend to report high
+confidence even on borderline questions — is documented honestly and would
+be addressed in a production system with a separate validation model or
+retrieval-grounded verification step.
 
-**Why keep the AI advisor separate from `pawpal_system.py`?**
-Separation of concerns — the core scheduling logic has no dependency on the AI
-layer. This means the original system still works fully without an API key.
+**Why separate the AI layer from the scheduling layer?**
+`ai_advisor.py` has zero imports from the scheduling logic in
+`pawpal_system.py` beyond the `Pet` dataclass. This means the scheduling
+system runs fully without an API key, and the AI layer can be swapped to a
+different model provider without touching any core logic.
 
----
-
-## Testing Summary
-
-The evaluation harness in `evaluate.py` runs 6 test cases:
-- 4 legitimate pet care questions — all passed with 95-100% confidence
-- 1 off-topic question — correctly flagged with 0% confidence
-- 1 empty input — correctly flagged with 0% confidence
-
-6/6 tests passed. Average confidence across all inputs was 64% (lower because
-the two guardrail tests score 0% by design). Average confidence on legitimate
-questions only was 96%.
-
-The existing 29-test suite in `tests/test_pawpal.py` continues to pass in full,
-confirming the new AI layer did not break any original functionality.
+**Why 15 eval test cases instead of the original 6?**
+6 cases is enough to verify basic behavior but insufficient to claim
+reliability. 15 cases across 5 categories — including edge cases like vague
+questions and species mismatches — gives a more honest picture of where the
+system succeeds and where it degrades.
 
 ---
 
-## Reflection
+## Local Setup
 
-Adding an AI layer revealed how important prompt design is. The system prompt
-instruction to end every response with `CONFIDENCE: 0.XX` was simple but
-effective, it gave the application a structured hook to parse and act on.
+    git clone https://github.com/dinakarbl/pawpal-plus.git
+    cd pawpal-plus
+    pip install -r requirements.txt
 
-The main limitation is that Gemini's self-reported confidence is not truly
-calibrated, it tends to report high confidence even on borderline questions.
-A more robust approach would use a separate validation model or a retrieval
-step to ground answers in verified pet care sources.
+Create a `.env` file in the project root:
 
-[**Model Card**](model_card.md)
+    GROQ_API_KEY=your_key_here
+
+Get a free key at https://console.groq.com
+
+Then run:
+
+    streamlit run app.py      # launch the web app
+    python evaluate.py        # run the eval harness in CLI
+    python ai_advisor.py      # run the CLI demo
 
 ---
 
-## Video Walkthrough
-[Watch the demo walkthrough](https://www.loom.com/share/666a5b2f621d4807a5d89aa24a7ced3e)
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| LLM | LLaMA 3.3 70B via Groq API |
+| Frontend | Streamlit |
+| Core logic | Python dataclasses |
+| Persistence | JSON |
+| Evaluation | Custom eval harness (evaluate.py) |
+| Deployment | Streamlit Community Cloud |
